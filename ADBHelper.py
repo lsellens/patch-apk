@@ -38,13 +38,13 @@ class ADBHelper:
 
     def pull_files(self, remote_paths: List[str], dest_dir: str, prefix: str) -> List[str]:
         """
-        Pull each remote path to dest_dir with filename '<prefix>-<basename>'.
+        Pull each remote path to dest_dir.
         Returns list of local file paths.
         """
         os.makedirs(dest_dir, exist_ok=True)
         local_paths = []
         for rp in remote_paths:
-            name = f"{prefix}-{os.path.basename(rp)}"
+            name = f"{os.path.basename(rp)}"
             dp = os.path.join(dest_dir, name)
             cmd = self._adb_cmd(["pull", rp, dp])
             self._run(cmd, "adb pull failed")

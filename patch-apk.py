@@ -87,6 +87,7 @@ def main():
     ap.add_argument("--disable-styles-hack", action="store_true", default=False,
                     help="Skip duplicate <style><item> removal (merge step)")
     ap.add_argument("--no-install", action="store_true", help="Do not install to device at the end")
+    ap.add_argument("--keep-splits", action="store_true", help="Keep split APKs when extracting")
     ap.add_argument("--save-apk", help="Copy final APK to this path")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
@@ -116,8 +117,17 @@ def main():
         # Pull split(s) via ADBHelper
         local_apks = adb.pull_files(apk_paths, tmp, pkg)
 
-        
         print(f"[*] Pulled {len(local_apks)} APK(s)")
+
+        # Keep splits if requested
+        if args.keep_splits:
+            target = f"{pkg}_splits"
+            Path(target).mkdir(parents=True, exist_ok=True)
+        
+            for p in local_apks:
+                shutil.copyfile(p, Path(target) / (os.path.basename(p).replace(pkg + "-", "")))
+            print(f"[+] Saved split APKs to: {colored(target, 'green')}")
+
         for p in local_apks:
             print(f"    - {os.path.basename(p)}")
 
@@ -147,9 +157,10 @@ def main():
             base.disassemble()
 
         # Apply patches
-        base.apply_patches(version=gadget_version,
-                            enable_user_certs=args.enable_user_certs,
-                            frida_gadget=not args.no_gadget)
+        if not args.extract_only:
+            base.apply_patches(version=gadget_version,
+                                enable_user_certs=args.enable_user_certs,
+                                frida_gadget=not args.no_gadget)
         # Build final APK
         base.assemble()
 
@@ -157,7 +168,7 @@ def main():
         if args.extract_only:
             target = args.save_apk if args.save_apk else f"{pkg}.apk"
             Path(os.path.dirname(target) or ".").mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(final_apk, target)
+            shutil.copyfile(base.apk_path, target)
             print(f"[+] Saved APK: {colored(target, 'green')}")
             return
 
