@@ -4,12 +4,12 @@ from urllib.request import urlopen, Request
 from urllib.parse import urlsplit
 from pathlib import Path
 from typing import List, Optional
+from Log import Log
 from packaging.version import parse as parse_version
 
 # If you put FridaGadget.py next to this file, this import will work.
 from FridaGadget import FridaGadget
 
-class APKError(RuntimeError): pass
 
 class APK:
 
@@ -30,7 +30,7 @@ class APK:
 
     # ---------- Creation ----------
     @classmethod
-    def from_url(cls, url: str, dest: Optional[str] = None, verbose: bool = False) -> "APK":
+    def from_url(cls, url: str, dest: Optional[str] = None) -> "APK":
         """
         Download an .apk from a URL to dest (or temp), then return an APK instance.
         """
@@ -46,14 +46,13 @@ class APK:
         with open(filename, "wb") as f:
             f.write(data)
 
-        if verbose:
-            print(f"[+] Downloaded APK: {filename} ({len(data)} bytes)")
-        return cls(filename, verbose=verbose)
+        Log.verbose(f" Downloaded APK: {filename} ({len(data)} bytes)")
+        return cls(filename)
 
     # ---------- Public APIs ----------
     def disassemble(self) -> str:
         
-        print(f"[*] Disassembling {os.path.basename(self.apk_path)} with apktool")
+        Log.info(f"Disassembling {os.path.basename(self.apk_path)} with apktool")
 
         """
         apktool d -> returns path to decoded dir.
@@ -62,8 +61,8 @@ class APK:
         args = ["d", self.apk_path, "-o", self.decoded, "-f", "--only-main-classes"]
 
         self._apktool(args, ok_required=True)
-        if self.verbose:
-            print(f"[+] Disassembled to: {self.decoded}")
+
+        Log.verbose(f" Disassembled to: {self.decoded}")
         return self.decoded
 
     def assemble(self, target : str = None) -> str:
@@ -72,8 +71,8 @@ class APK:
         """
         out_apk = os.path.join(self.workdir, "rebuilt.apk") if target is None else target
         self._apktool(["b", self.decoded, "-o", out_apk, "-f"], ok_required=True)
-        if self.verbose:
-            print(f"[+] Rebuilt APK: {out_apk}")
+
+        Log.verbose(f" Rebuilt APK: {out_apk}")
 
         self.apk_path = out_apk
         return out_apk
@@ -94,16 +93,15 @@ class APK:
         app_el = root.find(".//application")
 
         if app_el is None:
-            raise APKError("Application does not have <application> tag")
+            Log.abort("Application does not have <application> tag")
 
         if frida_gadget:
-            print("[+] Adding Frida gadget")
+            Log.info("Adding Frida gadget")
             # Ensure INTERNET
             has_inet = any(el.tag == "uses-permission" and el.attrib.get(ns + "name") == "android.permission.INTERNET"
                         for el in root)
             if not has_inet:
-                if self.verbose:
-                    print("[+] Adding android.permission.INTERNET")
+                Log.verbose("[+] Adding android.permission.INTERNET")
                 up = ET.Element("uses-permission")
                 up.attrib[ns + "name"] = "android.permission.INTERNET"
                 root.insert(0, up)
@@ -136,11 +134,12 @@ class APK:
 
             fg = FridaGadget()
             fg.copy_android_gadgets(apkdir, version=version)
-
+        else:
+            Log.warn("Not adding Frida Gadget.")
 
         if enable_user_certs:
             
-            print("[+] Enabling user-installed CA certificates via networkSecurityConfig")
+            Log.info("Enabling user-installed CA certificates via networkSecurityConfig")
             app_el.attrib[ns + "networkSecurityConfig"] = "@xml/network_security_config"
             xml_dir = os.path.join(apkdir, "res", "xml")
             Path(xml_dir).mkdir(parents=True, exist_ok=True)
@@ -154,7 +153,9 @@ class APK:
                          b'    </trust-anchors>'
                          b'  </base-config>'
                          b'</network-security-config>')
-
+        else:
+            Log.warn("Not adding user-installed CA certificates support.")
+        
         if self.has_been_merged:
 
             if ns + "isSplitRequired" in app_el.attrib:
@@ -194,7 +195,7 @@ class APK:
         for apk in others:
             decoded_dirs.append(apk.disassemble())
 
-        print("[+] Merging split APKs into base")
+        Log.info("Merging split APKs into base")
         self._copy_splits_into_base(decoded_dirs)
         self._fix_public_resource_ids(decoded_dirs)
         if not disable_styles_hack:
@@ -219,31 +220,29 @@ class APK:
             out = self.apk_path
         else:
             out = tmp
-        if self.verbose:
-            print(f"[+] Zipaligned: {out}")
+        Log.verbose(f" Zipaligned: {out}")
+
         return out
 
     def _apktool(self, args: List[str], ok_required: bool = False):
         exe = "apktool.bat" if os.name == "nt" else "apktool"
         # feed CRLF to bypass possible pause in Windows wrapper
         cp = subprocess.run([exe, *args], input="\r\n", text=True, capture_output=True)
-        if self.verbose:
-            print(f"[apktool] {exe} {' '.join(args)}\n{cp.stdout}")
-            if cp.returncode != 0:
-                print(cp.stderr, file=sys.stderr)
+        Log.verbose(f"[apktool] {exe} {' '.join(args)}\n{cp.stdout}")
+        if cp.returncode != 0:
+            Log.verbose(cp.stderr)
         if ok_required and cp.returncode != 0:
-            raise RuntimeError(f"apktool failed: \n\n{exe}{' '.join(args)}\n\n" + cp.stdout +"\n\n---\n\n"+ cp.stderr)
+            Log.abort(f"apktool failed: \n\n{exe}{' '.join(args)}\n\n" + cp.stdout +"\n\n---\n\n"+ cp.stderr)
 
     def _run(self, args: List[str], ok_required: bool = False):
-        if self.verbose:
-            print(f"[{args[0]}] {' '.join(args)}")
+        Log.verbose(f"[{args[0]}] {' '.join(args)}")
 
         cp = subprocess.run(args, capture_output=True, text=True)
 
         if cp.returncode != 0:
-            print(cp.stderr, file=sys.stderr)
+            Log.verbose(cp.stderr)
         if ok_required and cp.returncode != 0:
-            raise RuntimeError(f"Command failed: {' '.join(args)}")
+            Log.abort(f"Command failed: {' '.join(args)}")
 
     def _check_exists(self, p: str):
         if not os.path.exists(p):
@@ -307,8 +306,7 @@ class APK:
                 if rid in id_to_dummy:
                     dummy_to_real[id_to_dummy[rid]] = name
                     found += 1
-        if self.verbose:
-            print(f"[+] Resolved {found} resource names from splits")
+        Log.verbose(f" Resolved {found} resource names from splits")
 
         updated = 0
         for el in base_tree.getroot():
@@ -360,8 +358,7 @@ class APK:
                             changes += 1
                 if changed:
                     tree.write(path, encoding="utf-8", xml_declaration=True)
-        if self.verbose:
-            print(f"[+] Updated {changes} dummy resource references")
+        Log.verbose(f" Updated {changes} dummy resource references")
 
     def _hack_remove_duplicate_style_entries(self):
         base = self.decoded
@@ -384,8 +381,7 @@ class APK:
         for style, item in dupes:
             style.remove(item)
         tree.write(styles, encoding="utf-8", xml_declaration=True)
-        if self.verbose:
-            print(f"[+] Removed {len(dupes)} duplicate <item> entries from styles.xml")
+        Log.verbose(f" Removed {len(dupes)} duplicate <item> entries from styles.xml")
 
     def _disable_apk_splitting(self):
         base = self.decoded
@@ -548,5 +544,4 @@ class APK:
                     with open(p, "w", encoding="utf-8") as fh:
                         fh.write(ns)
                     count += 1
-        if self.verbose and count:
-            print(f"[+] Forced {count} private resource refs to public")
+        Log.verbose(f" Forced {count} private resource refs to public")

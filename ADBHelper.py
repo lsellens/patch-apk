@@ -1,13 +1,14 @@
 import subprocess, re, os, sys
 from typing import List, Optional, Tuple
 
+from Log import Log
+
 class ADBError(RuntimeError): pass
 
 class ADBHelper:
    
-    def __init__(self, serial: Optional[str] = None, verbose: bool = False):
+    def __init__(self, serial: Optional[str] = None):
         self.serial = serial
-        self.verbose = verbose
         self._check_adb()
 
     # -------------------- Public APIs --------------------
@@ -34,7 +35,7 @@ class ADBHelper:
             resolved_user, paths = self._pm_path_for_user(package, u)
             if paths:
                 return resolved_user, paths
-        raise ADBError(f"Package '{package}' not found for any user: {users}")
+        Log.abort(f"Package '{package}' not found for any user: {users}")
 
     def pull_files(self, remote_paths: List[str], dest_dir: str, prefix: str) -> List[str]:
         """
@@ -49,8 +50,7 @@ class ADBHelper:
             cmd = self._adb_cmd(["pull", rp, dp])
             self._run(cmd, "adb pull failed")
             local_paths.append(dp)
-            if self.verbose:
-                print(f"[+] Pulled: {rp} -> {dp}")
+            Log.verbose(f" Pulled: {rp} -> {dp}")
         return local_paths
 
     def install_apk(self, apk_path: str, user: str, replace: bool = True) -> None:
@@ -69,10 +69,9 @@ class ADBHelper:
     # -------------------- Internals --------------------
 
     def _pm_path_for_user(self, package: str, user: str) -> Tuple[str, List[str]]:
-        if self.verbose:
-            print(f"[ADB] pm path --user {user} {package}")
+        Log.verbose(f"[ADB] pm path --user {user} {package}")
         try:
-            out = self._run_adb(["shell", "pm", "path", "--user", user, package])
+            out = self._run_adb(["shell", "pm", "path", "--user", user, package], allowed_result_codes=[0, 1])
         except ADBError:
             return user, []
         paths = [line[8:].strip() for line in out.splitlines() if line.startswith("package:")]
@@ -86,30 +85,29 @@ class ADBHelper:
         try:
             self._run_adb(["devices"])
         except ADBError as e:
-            raise ADBError("adb not available or device list inaccessible") from e
+            Log.abort("adb not available or device list inaccessible")
 
     def _adb_cmd(self, tail: List[str]) -> List[str]:
         cmd = ["adb"]
         if self.serial:
             cmd += ["-s", self.serial]
         cmd += tail
-        if self.verbose:
-            print("[ADB]", " ".join(cmd))
+
+        Log.verbose("[ADB] " + " ".join(cmd))
         return cmd
 
-    def _run_adb(self, args: List[str]) -> str:
+    def _run_adb(self, args: List[str], allowed_result_codes: List[int] = [0]) -> str:
         cmd = self._adb_cmd(args)
         proc = subprocess.run(cmd, capture_output=True, text=True)
-        if proc.returncode != 0:
-            raise ADBError(proc.stderr.strip() or proc.stdout.strip() or "ADB command failed")
+        if not proc.returncode in allowed_result_codes:
+            Log.abort(proc.stderr.strip() or proc.stdout.strip() or "ADB command failed")
         return proc.stdout
 
     def _run(self, cmd: List[str], err: str = "command failed", raise_on_error: bool = True) -> None:
         proc = subprocess.run(cmd, capture_output=True, text=True)
-        if self.verbose:
-            if proc.stdout:
-                print(proc.stdout)
-            if proc.returncode != 0 and proc.stderr:
-                print(proc.stderr, file=sys.stderr)
+        if proc.stdout:
+            Log.verbose(proc.stdout)
+        if proc.returncode != 0 and proc.stderr:
+            Log.verbose(proc.stderr)
         if raise_on_error and proc.returncode != 0:
-            raise ADBError(proc.stderr.strip() or proc.stdout.strip() or err)
+            Log.abort(proc.stderr.strip() or proc.stdout.strip() or err)

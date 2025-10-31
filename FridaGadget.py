@@ -7,10 +7,11 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 import time
+from Log import Log
+import requests.exceptions
+
 
 import requests
-
-
 class FridaGadget:
 
     LATEST_URL = "https://api.github.com/repos/frida/frida/releases/latest"
@@ -57,7 +58,7 @@ class FridaGadget:
         tag = release.get("tag_name") or "unknown"
 
         if self.verbose:
-            print(f"[+] Downloading gadget version {tag}")
+            Log.info(f"Downloading gadget version {tag}")
 
         cache_dir = self.cache_root / tag
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -71,7 +72,7 @@ class FridaGadget:
             if self._is_android_gadget(a.get("name", ""))
         ]
         if not wanted_assets:
-            raise RuntimeError(f"No Android frida-gadget assets found in release {tag}.")
+            Log.abort(f"No Android frida-gadget assets found in release {tag}.")
 
         # Download any missing ABIs into cache
         for asset in wanted_assets:
@@ -83,7 +84,7 @@ class FridaGadget:
             cache_so = cache_dir / abi / "libfrida-gadget.so"
             if abi not in cached_abis or not cache_so.exists():
                 if self.verbose:
-                    print(f"[+] Downloading gadget {url}")
+                    Log.info(f"Downloading gadget {url}")
                 cache_so.parent.mkdir(parents=True, exist_ok=True)
 
                 tmp_download = cache_so.parent / name     # store the archive in same abi dir
@@ -96,7 +97,7 @@ class FridaGadget:
         abis_ready = self._cached_abis(cache_dir)
         if self.verbose:
             for abi in sorted(abis_ready):
-                print(f"[+] Cached: {cache_dir / abi / 'libfrida-gadget.so'}")
+                Log.info(f"Cached: {cache_dir / abi / 'libfrida-gadget.so'}")
 
         return tag
 
@@ -117,7 +118,7 @@ class FridaGadget:
         cache_root: Path = Path(self.cache_root).expanduser().resolve()
 
         if not cache_root.exists():
-            raise RuntimeError(f"Gadget cache root not found: {cache_root}")
+            Log.abort(f"Gadget cache root not found: {cache_root}")
 
         # --- resolve tag directory ---
         tag_dir: Optional[Path] = None
@@ -141,12 +142,12 @@ class FridaGadget:
             # pick the most recently modified tag dir
             tag_dirs = [p for p in cache_root.iterdir() if p.is_dir()]
             if not tag_dirs:
-                raise RuntimeError(f"No cached gadget versions found under {cache_root}")
+                Log.abort(f"No cached gadget versions found under {cache_root}")
             tag_dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
             tag_dir = tag_dirs[0]
 
         if self.verbose:
-            print(f"[+] Using cached gadget tag: {tag_dir.name}")
+            Log.info(f"Using cached gadget tag: {tag_dir.name}")
 
         # --- iterate ABIs under tag dir and copy ---
         copied: List[Path] = []
@@ -164,10 +165,10 @@ class FridaGadget:
             shutil.copyfile(src_so, dest_so)
             copied.append(dest_so)
             if self.verbose:
-                print(f"[+] Copied: {src_so} -> {dest_so}")
+                Log.info(f"Copied: {src_so} -> {dest_so}")
 
         if not any_found:
-            raise RuntimeError(f"No cached libfrida-gadget.so found under {tag_dir}")
+            Log.abort(f"No cached libfrida-gadget.so found under {tag_dir}")
 
         return copied
 
@@ -178,13 +179,28 @@ class FridaGadget:
         return r.json()
 
     def fetch_release_tag(self, tag: str) -> Dict:
-        url = self.TAG_URL_TPL.format(tag=tag)
-        r = self.session.get(url, timeout=30)
-        r.raise_for_status()
-        return r.json()
+
+        try:
+            url = self.TAG_URL_TPL.format(tag=tag)
+            r = self.session.get(url, timeout=30)
+            r.raise_for_status()
+            return r.json()
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                return None
+            else:
+                Log.abort(f"HTTP error fetching release tag '{tag}': {e.response.status_code} {e.response.reason}")
+
+        except Exception as e:
+            Log.abort(f"Error connecting to GitHub API: {e}")
 
     def fetch_release(self, version: Optional[str] = None) -> Dict:
-        return self.fetch_release_latest() if version is None else self.fetch_release_tag(version)
+
+        if version:
+            if tag := self.fetch_release_tag(version):
+                return tag
+        
+        return self.fetch_release_latest()
 
     # ---------- Internals ----------
 
@@ -237,37 +253,3 @@ class FridaGadget:
                 found.append(abi)
         return found
 
-
-# --------- CLI (optional) ---------
-if __name__ == "__main__":
-    import argparse
-    import sys
-
-    ap = argparse.ArgumentParser(
-        description="Download Frida Gadget (Android) into APK-like lib/<abi>/libfrida-gadget.so with versioned cache"
-    )
-    ap.add_argument("dest", help="Destination folder (structure: DEST/lib/<abi>/libfrida-gadget.so)")
-    ap.add_argument(
-        "--version",
-        help='Specific release tag like "16.5.6" or "v16.5.6". Omit for latest.',
-        default=None,
-    )
-    ap.add_argument("--no-decompress", action="store_true", help="Keep .xz/.gz archives in cache (dest still gets .so)")
-    args = ap.parse_args()
-
-    try:
-        fg = FridaGadget()
-        files = fg.copy_android_gadgets(
-            args.dest,
-            decompress=not args.no_decompress,
-            version=args.version,
-        )
-        print("Placed gadgets:")
-        for p in files:
-            print(" ", p)
-    except requests.HTTPError as e:
-        print(f"HTTP error: {e}", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(2)
