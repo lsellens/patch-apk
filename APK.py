@@ -58,7 +58,7 @@ class APK:
         apktool d -> returns path to decoded dir.
         """
         self.decoded = os.path.join(self.workdir, "apk_decoded")
-        args = ["d", self.apk_path, "-o", self.decoded, "-f", "--only-main-classes"]
+        args = ["d", self.apk_path, "-o", self.decoded, "-f"]
 
         self._apktool(args, ok_required=True)
 

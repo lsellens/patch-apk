@@ -22,6 +22,6 @@ class Log:
             print(colored(msg, 'cyan'))
 
     @staticmethod
-    def info(msg):
-        msg = "[*] " + msg
+    def info(msg, prefix = "[*] "):
+        msg = prefix + msg
         print(msg)

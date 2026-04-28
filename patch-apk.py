@@ -7,6 +7,7 @@ from ADBHelper import ADBHelper, ADBError
 from Log import Log
 from FridaGadget import FridaGadget
 from termcolor import colored # pip3 install termcolor
+from packaging.version import parse as parse_version
 
 def sign_with_apksigner(apk_path: str):
 
@@ -43,7 +44,7 @@ def choose_package(adb: ADBHelper, pattern: str) -> str:
     # Multiple matches: show menu, ask user to choose by number
     Log.info("Multiple matching packages found. Select the package to patch:")
     for i, name in enumerate(matches, start=1):
-        Log.info(f"[{i}] {name}")
+        Log.info(f"[{i}] {name}", "")
 
     while True:
         try:
@@ -131,6 +132,12 @@ def main():
 
         for p in local_apks:
             Log.info(f" - {os.path.basename(p)}")
+
+        # Test if apktool is version 3.0.2 or newer
+        apktool_version = subprocess.run(["apktool", "-version"], capture_output=True, text=True).stdout.strip()
+        if parse_version(apktool_version) < parse_version("3.0.2"):
+            Log.abort(f"apktool version 3.0.2 or newer is required, found {apktool_version}")
+            return
 
         if len(local_apks) == 1:
             Log.info("Single APK detected")
