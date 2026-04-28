@@ -1,10 +1,5 @@
-# :warning: Active fork for NickstaDB/patch-apk
+# patch-apk - App Bundle/Split APK Aware Patcher for Objection
 
-As the original projects has been set to read-only, I've created an active fork which combines most interesting modifications. If you identify any issues, please open a ticket.
-
-Original credit goes to @NickstaDB and significant modifications were made by myself and @jseigelis
-
-# patch-apk - App Bundle/Split APK Aware Patcher for Objection #
 An APK patcher, for use with [objection](https://github.com/sensepost/objection), that supports Android app bundles/split APKs. It automates the following:
 
 1. Finding the full package name of an Android app.
@@ -15,7 +10,10 @@ An APK patcher, for use with [objection](https://github.com/sensepost/objection)
 5. Uninstalling the original app from the device.
 6. Installing the patched app to the device, ready for use with objection.
 
-### Changelog ###
+### Changelog
+
+* **4th April 2026:**
+ * Update for compatibility with apktool 3.x which no longer has `--main-classes-only`
 
 * **10th October 2024:**
   * Added mult-user support. If the apk file path can't be found for the default user, it will try other users
@@ -37,40 +35,61 @@ An APK patcher, for use with [objection](https://github.com/sensepost/objection)
 * **29th March 2020:** Added `--save-apk` parameter to save a copy of the unpatched single APK for use with other tools.
 * **27th March 2020:** Initial release supporting split APKs and the `--no-enable-user-certs` flag.
 
-## Usage ##
-Install the target Android application on your device and connect it to your computer/VM so that `adb devices` can see it, then run:
+## Usage
+Install the target Android application on your device and connect it to your computer/VM so that `adb devices` can see it.
 
 ```
-python3 patch-apk.py {package-name}
+$ patch-apk.py -h
+usage: patch-apk.py [-h] [--serial SERIAL] [--user USER] [--gadget-version GADGET_VERSION] [--no-user-certs] [--no-gadget] [--extract-only] [--disable-styles-hack] [--no-install] [--keep-splits] [--save-apk SAVE_APK] [-v] pkg_pattern
+
+Pull, merge/patch, add gadget, build, align, sign, install.
+
+positional arguments:
+  pkg_pattern           Package name or substring
+
+options:
+  -h, --help            show this help message and exit
+  --serial SERIAL       adb -s <serial>
+  --user USER           Preferred user id (fallback to others if not found)
+  --gadget-version GADGET_VERSION
+                        Frida Gadget version (None = latest)
+  --no-user-certs       Do not enable user-installed CA certs via networkSecurityConfig
+  --no-gadget           Do not add Frida Gadget
+  --extract-only        Only extract, merge and rebuild. Alias for --no-gadget --no-user-certs --no-install
+  --disable-styles-hack
+                        Skip duplicate <style><item> removal (merge step)
+  --no-install          Do not install to device at the end
+  --keep-splits         Keep split APKs when extracting
+  --save-apk SAVE_APK   Copy final APK to this path
+  -v, --verbose
 ```
 
 The package-name parameter can be the fully-qualified package name of the Android app, such as `com.google.android.youtube`, or a partial package name, such as `tube`.
 
 Along with injecting an instrumentation gadget, the script also automatically enables support for user-installed CA certificates by injecting a network security configuration file into the APK. To disable this functionality, pass the `--no-enable-user-certs` parameter on the command line.
 
-### Examples ###
-**Basic usage:** Simply install the target Android app on your device, make sure `adb devices` can see your device, then pass the package name to `patch-apk.py`.
+### Examples
+
+Pulling a single APK, patching with objection, and installing back to the device:
 
 ```
-$ python3 patch-apk.py com.whatsapp
-Getting APK path(s) for package: com.whatsapp
-[+] APK path: /data/app/com.whatsapp-NKLgchoExRFTDLkkbDqBGg==/base.apk
-
-Pulling APK file(s) from device.
-[+] Pulling: com.whatsapp-base.apk
-
-Patching com.whatsapp-base.apk with objection.
-
-Patching APK to enable support for user-installed CA certificates.
-
-Uninstalling the original package from the device.
-
-Installing the patched APK to the device.
-
-Done, cleaning up temporary files.
+$ python3 patch-apk.py org.proxydroid
+[*] Using package: org.proxydroid
+[*] Fetching Frida gadgets
+[!] No Frida Gadget version specified; using latest available (17.9.2).
+[!] Specify --gadget-version 16.7.19 for compatibility with objection
+[*] Pulled 1 APK(s)
+[*]  - base.apk
+[*] Single APK detected
+[*] Disassembling base.apk with apktool
+[*] Adding Frida gadget
+[*] Enabling user-installed CA certificates via networkSecurityConfig
+[*] Signing with apksigner
+[*] Uninstalling original (user 0)
+[*] Installing patched version (user 0)
 ```
 
-When `patch-apk.py` is done, the installed app should be patched with objection and have support for user-installed CA certificates enabled. Launch the app on the device and run `objection explore` as you normally would to connect to the agent.
+When `patch-apk.py` is done, the installed app should be patched with objection and have support for user-installed CA certificates enabled. Launch the app on the device and run `objection start` as you normally would to connect to the agent.
 
 **Partial Package Name Matching:** Pass a partial package name to `patch-apk.py` and it'll automatically grab the correct package name or ask you to confirm from available options.
 
@@ -82,6 +101,8 @@ $ python3 patch-apk.py proxy
 [1] org.proxydroid
 [2] com.android.proxyhandler
 Choice: 
+
+...
 
 ```
 
@@ -100,62 +121,33 @@ package:/data/app/~~TP7sglBuEoDc3yH0wpZdiA==/org.proxydroid-PCy1JxTMVJT3KmxVqaag
 The following shows `patch-apk.py` detecting, rebuilding, and patching a split APK. Some output has been snipped for brevity. The `-v` flag has been set to show additional info.
 
 ```
-$ python3 patch-apk.py org.proxydroid -v
+$ python3 patch-apk.py org.proxydroid
 
-[+] Retrieving APK path(s) for package: org.proxydroid
-    [+] APK path: /data/app/~~FTVBmscrJiLerJdXIEa5tw==/org.proxydroid-KMq91nU1y9Qz8ZZAGM--RA==/base.apk
-    [+] APK path: /data/app/~~FTVBmscrJiLerJdXIEa5tw==/org.proxydroid-KMq91nU1y9Qz8ZZAGM--RA==/split_config.arm64_v8a.apk
-    [+] APK path: /data/app/~~FTVBmscrJiLerJdXIEa5tw==/org.proxydroid-KMq91nU1y9Qz8ZZAGM--RA==/split_config.en.apk
-    [+] APK path: /data/app/~~FTVBmscrJiLerJdXIEa5tw==/org.proxydroid-KMq91nU1y9Qz8ZZAGM--RA==/split_config.fr.apk
-    [+] APK path: /data/app/~~FTVBmscrJiLerJdXIEa5tw==/org.proxydroid-KMq91nU1y9Qz8ZZAGM--RA==/split_config.nl.apk
-    [+] APK path: /data/app/~~FTVBmscrJiLerJdXIEa5tw==/org.proxydroid-KMq91nU1y9Qz8ZZAGM--RA==/split_config.xxhdpi.apk
+[*] Using package: org.proxydroid
+[*] Fetching Frida gadgets
+[!] No Frida Gadget version specified; using latest available (17.9.2).
+[!] Specify --gadget-version 16.7.19 for compatibility with objection
+[*] Pulled 6 APK(s)
+[*]  - base.apk
+[*]  - split_config.arm64_v8a.apk
+[*]  - split_config.en.apk
+[*]  - split_config.fr.apk
+[*]  - split_config.nl.apk
+[*]  - split_config.xxxhdpi.apk
+[*] Split APK set detected (6)
+[*] Disassembling base.apk with apktool
+[*] Disassembling split_config.arm64_v8a.apk with apktool
+[*] Disassembling split_config.en.apk with apktool
+[*] Disassembling split_config.fr.apk with apktool
+[*] Disassembling split_config.nl.apk with apktool
+[*] Disassembling split_config.xxxhdpi.apk with apktool
+[*] Merging split APKs into base
+[*] Adding Frida gadget
+[*] Enabling user-installed CA certificates via networkSecurityConfig
+[*] Signing with apksigner
+[*] Uninstalling original (user 0)
+[*] Installing patched version (user 0)
 
-[+] Pulling APK file(s) from device |################################| 6/6
-    [+] Pulled: org.proxydroid-base.apk
-    [+] Pulled: org.proxydroid-split_config.arm64_v8a.apk
-    [+] Pulled: org.proxydroid-split_config.en.apk
-    [+] Pulled: org.proxydroid-split_config.fr.apk
-    [+] Pulled: org.proxydroid-split_config.nl.apk
-    [+] Pulled: org.proxydroid-split_config.xxhdpi.apk
-
-[!] App bundle/split APK detected, rebuilding as a single APK.
-
-[+] Disassembling split APKs |################################| 6/6
-    
-    Extracted: /var/folders/t3/vz305z151ng8y2rwvpkx28xw0000gn/T/tmpyw7wl64i/org.proxydroid-base.apk
-    Extracted: /var/folders/t3/vz305z151ng8y2rwvpkx28xw0000gn/T/tmpyw7wl64i/org.proxydroid-split_config.arm64_v8a.apk
-    Extracted: /var/folders/t3/vz305z151ng8y2rwvpkx28xw0000gn/T/tmpyw7wl64i/org.proxydroid-split_config.en.apk
-    Extracted: /var/folders/t3/vz305z151ng8y2rwvpkx28xw0000gn/T/tmpyw7wl64i/org.proxydroid-split_config.fr.apk
-    Extracted: /var/folders/t3/vz305z151ng8y2rwvpkx28xw0000gn/T/tmpyw7wl64i/org.proxydroid-split_config.nl.apk
-    Extracted: /var/folders/t3/vz305z151ng8y2rwvpkx28xw0000gn/T/tmpyw7wl64i/org.proxydroid-split_config.xxhdpi.apk
-
-[+] Rebuilding as a single APK
-    
-    [+] Found public.xml in the base APK, fixing resource identifiers across split APKs.
-    [+] Resolving 21 resource identifiers.
-    [+] Located 21 true resource names.
-    [+] Updated 21 dummy resource names with true names in the base APK.
-    [+] Updated 47 references to dummy resource names in the base APK.
-    [+] Disabling APK splitting in AndroidManifest.xml of base APK.
-    [+] Fixing any improperly escaped ampersands.
-    [+] Forcing all private resources to be public
-    [+] Updated 350 private resources before building APK.
-    [+] Rebuilding with 'apktool --use-aapt2'.
-
-[+] Patching org.proxydroid-base.apk with objection.
-
-[+] Patching APK to enable support for user-installed CA certificates.
-    [+] Forcing all private resources to be public
-    [+] Updated 351 private resources before building APK.
-    [+] Rebuilding with 'apktool --use-aapt2'.
-    [+] Zip aligning new APK.
-    [+] Signing new APK.
-
-[+] Uninstalling the original package from the device.
-
-[+] Installing the patched APK to the device.
-
-[+] Done
 ```
 
 After `patch-apk.py` completes, we can run `adb shell pm path` again to verify that there is now a single patched APK installed on the device.
@@ -169,41 +161,26 @@ By default, patch-apk will inject the frida gadget and modify the network securi
 
 ```
 $ python3 patch-apk.py org.proxydroid --extract-only
-
-[+] Retrieving APK path(s) for package: org.proxydroid
-
-[+] Pulling APK file(s) from device |################################| 6/6
-
-[!] App bundle/split APK detected, rebuilding as a single APK.
-
-[+] Disassembling split APKs |################################| 6/6
-
-[+] Rebuilding as a single APK
-
-[+] Saving a copy of the APK to org.proxydroid.apk
+[*] Using package: org.proxydroid
+[*] Pulled 6 APK(s)
+[*]  - base.apk
+[*]  - split_config.arm64_v8a.apk
+[*]  - split_config.en.apk
+[*]  - split_config.fr.apk
+[*]  - split_config.nl.apk
+[*]  - split_config.xxxhdpi.apk
+[*] Split APK set detected (6)
+[*] Disassembling base.apk with apktool
+[*] Disassembling split_config.arm64_v8a.apk with apktool
+[*] Disassembling split_config.en.apk with apktool
+[*] Disassembling split_config.fr.apk with apktool
+[*] Disassembling split_config.nl.apk with apktool
+[*] Disassembling split_config.xxxhdpi.apk with apktool
+[*] Merging split APKs into base
+[*] Saved APK: org.proxydroid.apk
 ```
 
-## Combining Split APKs ##
-Split APKs have been supported since Android 5/Lollipop (June 2014, API level 21). Essentially this allows an app to be split across multiple APK files, for example one might contain the main code and another might contain image resources for a given screen resolution. We can identify whether an app uses split APKs with the `adb shell pm path` command like so:
+## Original research
 
-```
-$ adb shell pm path org.proxydroid
-package:/data/app/~~TP7sglBuEoDc3yH0wpZdiA==/org.proxydroid-PCy1JxTMVJT3KmxVqaagGQ==/base.apk
-package:/data/app/~~TP7sglBuEoDc3yH0wpZdiA==/org.proxydroid-PCy1JxTMVJT3KmxVqaagGQ==/split_config.arm64_v8a.apk
-package:/data/app/~~TP7sglBuEoDc3yH0wpZdiA==/org.proxydroid-PCy1JxTMVJT3KmxVqaagGQ==/split_config.en.apk
-package:/data/app/~~TP7sglBuEoDc3yH0wpZdiA==/org.proxydroid-PCy1JxTMVJT3KmxVqaagGQ==/split_config.fr.apk
-package:/data/app/~~TP7sglBuEoDc3yH0wpZdiA==/org.proxydroid-PCy1JxTMVJT3KmxVqaagGQ==/split_config.nl.apk
-package:/data/app/~~TP7sglBuEoDc3yH0wpZdiA==/org.proxydroid-PCy1JxTMVJT3KmxVqaagGQ==/split_config.xxhdpi.apk
-```
+* NickstaDB - https://nickbloor.co.uk/2020/03/29/patching-android-split-apks/
 
-These can be combined into a single APK for use with other tools such as `objection patchapk`. This is done by `patch-apk.py` as follows:
-
-**Step 1 - Extract APKs:** First, the individual APK files are pulled from the device and extracted using `apktool`.
-
-**Step 2 - Combine Files:** Next, we walk the directory trees of all but `base.apk`, and move files and directories from the split APKs into the base APK.
-
-**Step 3 - Fix Resource Identifiers:** Some resource names might only be defined in one of the split APKs, so we need to gather these up and update `base.apk` with the correct resource names.
-
-**Step 4 - Disable Splitting:** The `AndroidManifest.xml` in `base.apk` is updated to disable support for splitting before rebuilding, signing, and zip aligning the APK.
-
-More details can be found on [my blog](https://nickbloor.co.uk/2020/03/29/patching-android-split-apks/).
